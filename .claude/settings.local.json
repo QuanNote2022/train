@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python *)",
+      "Bash(conda info *)",
+      "Bash(nvidia-smi)",
+      "Bash(conda create *)",
+      "Bash(conda run *)",
+      "Bash(KMP_DUPLICATE_LIB_OK=TRUE conda run *)"
+    ]
+  }
+}
