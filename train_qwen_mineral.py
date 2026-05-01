@@ -1,6 +1,9 @@
 """
-Qwen3.5 2B 矿物知识问答助手 — Unsloth QLoRA 微调脚本
+Qwen3.5 2B 矿物识别助手 — Unsloth QLoRA 微调脚本
 适配 6GB VRAM (RTX 3060)
+后端项目: mineral-system/backend 通过 OpenAI-compatible API 调用
+消息流:   [SystemMessage(prompt+context)] → [UserMessage(question)] → [AiMessage(answer)]
+ChatML:   <|im_start|>system ... <|im_end|> <|im_start|>user ... <|im_end|> <|im_start|>assistant ... <|im_end|>
 """
 
 import torch
@@ -14,7 +17,7 @@ import os
 # ============================================================
 # 配置
 # ============================================================
-MODEL_NAME = "unsloth/Qwen3.5-2B"
+MODEL_NAME = "unsloth/Qwen3.5-2B-Instruct"
 MAX_SEQ_LENGTH = 1024
 LORA_R = 16
 LORA_ALPHA = 16
@@ -24,7 +27,10 @@ OUTPUT_DIR = "D:\\OneDrive\\Desktop\\train\\mineral_lora_model"
 DATA_DIR = "D:\\OneDrive\\Desktop\\train\\data"
 
 # ============================================================
-# ChatML 格式模板 (Qwen3.5 使用 ChatML)
+# ChatML 格式 — 与后端 ChatService.chatWithOllama() 的消息结构一致:
+#   SystemMessage(systemPrompt + RAG context + mineralContext)
+#   UserMessage(content)
+#   AiMessage(response)
 # ============================================================
 CHAT_TEMPLATE = """<|im_start|>system
 {system}<|im_end|>
@@ -34,35 +40,28 @@ CHAT_TEMPLATE = """<|im_start|>system
 {output}<|im_end|>"""
 
 def format_chatml(examples):
-    """将 Alpaca 格式数据转为 ChatML 文本"""
+    """
+    转为 ChatML 文本。
+    system      = 后端 buildSystemPrompt() 的输出 (基础提示词 + 矿物上下文)
+    instruction = 用户原始问题 (对应 SendMessageRequest.content)
+    output      = AI 回答
+    input 字段保留为空 — mineralContext 已合入 system 中
+    """
     texts = []
     for i in range(len(examples["instruction"])):
-        system = examples.get("system", [""] * len(examples["instruction"]))
-        if isinstance(system, list):
-            sys = system[i] if i < len(system) else ""
-        else:
-            sys = system
-
+        sys = examples["system"][i] if isinstance(examples["system"], list) else examples.get("system", "")
         inst = examples["instruction"][i]
-        inp = examples.get("input", [""] * len(examples["instruction"]))
-        if isinstance(inp, list):
-            user_input = inp[i] if i < len(inp) else ""
-        else:
-            user_input = inp
-
+        inp = examples.get("input", [""] * len(examples["instruction"])) if isinstance(examples.get("input"), list) else examples.get("input", "")
         out = examples["output"][i]
 
-        # 如果有 input 字段，拼接到 instruction 后面
-        if user_input and user_input.strip():
-            full_instruction = f"{inst}\n{user_input}"
-        else:
-            full_instruction = inst
+        user_msg = inst
+        if isinstance(inp, list):
+            if i < len(inp) and inp[i] and inp[i].strip():
+                user_msg = f"{inst}\n{inp[i]}"
+        elif inp and inp.strip():
+            user_msg = f"{inst}\n{inp}"
 
-        text = CHAT_TEMPLATE.format(
-            system=sys,
-            instruction=full_instruction,
-            output=out,
-        )
+        text = CHAT_TEMPLATE.format(system=sys, instruction=user_msg, output=out)
         texts.append(text)
     return {"text": texts}
 
