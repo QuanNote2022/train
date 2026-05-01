@@ -6,7 +6,8 @@
       "Bash(nvidia-smi)",
       "Bash(conda create *)",
       "Bash(conda run *)",
-      "Bash(KMP_DUPLICATE_LIB_OK=TRUE conda run *)"
+      "Bash(KMP_DUPLICATE_LIB_OK=TRUE conda run *)",
+      "Bash(PYTHONIOENCODING=utf-8 conda run *)"
     ]
   }
 }

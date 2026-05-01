@@ -1,185 +1,157 @@
 """
-矿物知识问答助手 — 推理测试脚本
-加载微调后的模型进行交互式问答
+Qwen3.5-2B 矿物识别助手 — 推理测试
+支持: 文本问答 / mineralContext(带矿物上下文) / 图片检测
 """
-
 import torch
-from unsloth import FastLanguageModel
-import sys
-import os
+from unsloth import FastVisionModel
+from PIL import Image
+import sys, os, json
 
-MODEL_PATH = "D:\\OneDrive\\Desktop\\train\\mineral_lora_model\\merged_16bit"
-# 如果用 LoRA 适配器而非合并后的模型，取消下面一行注释：
-# MODEL_PATH = "unsloth/Qwen3.5-2B"
-# LORA_PATH = "D:\\OneDrive\\Desktop\\train\\mineral_lora_model\\lora_adapter"
+MODEL_PATH = "D:\\OneDrive\\Desktop\\train\\mineral_unified_model\\merged_16bit"
+LORA_PATH = "D:\\OneDrive\\Desktop\\train\\mineral_unified_model\\lora_adapter"
+USE_LORA = os.path.exists(LORA_PATH)
 
-# 与后端 ChatService.buildSystemPrompt() 保持一致
 SYSTEM_PROMPT = (
     "你是一个专业的矿物识别助手，专门帮助用户了解矿物相关知识。"
     "请用简洁、准确、友好的中文回答用户的问题。\n\n"
     "如果用户的问题超出你的知识范围，请诚实地告知，不要编造信息。"
 )
 
-# ============================================================
-# 加载模型
+DETECTION_SYSTEM = (
+    "你是一个专业的矿物识别专家。请仔细分析图片，识别图片中的矿物。"
+    "请以JSON格式返回识别结果，包含矿物名称、置信度和边界框(bbox)。"
+)
+
 # ============================================================
 print("Loading model...")
-
 if os.path.exists(MODEL_PATH):
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=MODEL_PATH,
-        max_seq_length=1024,
-        dtype=None,
-        load_in_4bit=True,
+    model, tokenizer = FastVisionModel.from_pretrained(
+        model_name=MODEL_PATH, max_seq_length=1024, dtype=None, load_in_4bit=True,
     )
-    print(f"Loaded merged model from {MODEL_PATH}")
-else:
-    # 基座 + LoRA 方式加载
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name="unsloth/Qwen3.5-2B",
-        max_seq_length=1024,
-        dtype=None,
-        load_in_4bit=True,
+    print(f"Loaded from {MODEL_PATH}")
+elif USE_LORA:
+    model, tokenizer = FastVisionModel.from_pretrained(
+        model_name="Qwen/Qwen3.5-2B", max_seq_length=1024, dtype=None, load_in_4bit=True,
     )
     from peft import PeftModel
-    model = PeftModel.from_pretrained(
-        model,
-        "D:\\OneDrive\\Desktop\\train\\mineral_lora_model\\lora_adapter"
+    model = PeftModel.from_pretrained(model, LORA_PATH)
+    print(f"Loaded base + LoRA from {LORA_PATH}")
+else:
+    model, tokenizer = FastVisionModel.from_pretrained(
+        model_name="Qwen/Qwen3.5-2B", max_seq_length=1024, dtype=None, load_in_4bit=True,
     )
-    print("Loaded base model + LoRA adapter")
+    print("Loaded base model (no fine-tune)")
 
-FastLanguageModel.for_inference(model)
+FastVisionModel.for_inference(model)
 
 # ============================================================
-# 推理函数
-# ============================================================
-def ask(question: str, mineral_context: str = None) -> str:
-    """
-    向矿物助手提问。
-    模拟后端 ChatService.chatWithOllama() 的消息构建逻辑:
-      SystemMessage(systemPrompt + mineralContext)
-      UserMessage(question)
-    """
-    system_content = SYSTEM_PROMPT
-    if mineral_context:
-        system_content += "\n\n=== 当前矿物信息 ===\n" + mineral_context + "\n=== 当前矿物信息结束 ==="
+def ask(question: str, mineral_context: str = None, image: Image.Image = None) -> str:
+    """调用 Qwen3.5 多模态模型"""
+    # 构建 system prompt
+    if image is not None:
+        system_content = DETECTION_SYSTEM
+    elif mineral_context:
+        system_content = SYSTEM_PROMPT + "\n\n=== 当前矿物信息 ===\n" + mineral_context + "\n=== 当前矿物信息结束 ==="
+    else:
+        system_content = SYSTEM_PROMPT
 
     messages = [
         {"role": "system", "content": system_content},
         {"role": "user", "content": question},
     ]
 
-    text = tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True,
-    )
-
+    text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     inputs = tokenizer(text, return_tensors="pt").to(model.device)
 
     with torch.no_grad():
         outputs = model.generate(
             **inputs,
-            max_new_tokens=512,
-            temperature=0.7,
-            top_p=0.9,
-            top_k=50,
-            repetition_penalty=1.1,
-            do_sample=True,
+            max_new_tokens=512, temperature=0.7, top_p=0.9, top_k=50,
+            repetition_penalty=1.1, do_sample=True,
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
         )
-
-    response = tokenizer.decode(outputs[0][len(inputs[0]):], skip_special_tokens=True)
-    return response.strip()
+    return tokenizer.decode(outputs[0][len(inputs[0]):], skip_special_tokens=True).strip()
 
 
 # ============================================================
 # 测试用例
 # ============================================================
-TEST_QUESTIONS = [
-    # 基础矿物问答 (无上下文)
-    "什么是莫氏硬度？",
-    "石英和方解石怎么区分？",
-    "金刚石和石墨有什么区别？",
-    "请介绍一下黄铁矿。",
-    "我们日常生活中哪些东西来自矿物？",
-    "黄金为什么是黄色的？",
-]
-
-# 模拟后端识别后带 mineralContext 的问答场景
-TEST_CONTEXTUAL = [
-    {
-        "question": "这个矿物有什么用途？",
-        "context": "名称: 磁铁矿\n化学式: Fe₃O₄\n硬度: 5.5-6.5\n光泽: 金属至半金属光泽\n颜色: 铁黑色\n产地: 岩浆岩、变质岩、砂矿\n用途: 铁矿石、磁性材料\n描述: 磁铁矿是自然界磁性最强的矿物，古代指南针「司南」即用天然磁铁矿制成。",
-    },
-    {
-        "question": "它有毒吗？怎么安全收藏？",
-        "context": "名称: 雄黄\n化学式: As₄S₄\n硬度: 1.5-2\n光泽: 油脂至金刚光泽\n颜色: 橙红色\n产地: 低温热液矿床\n用途: 中药(慎用)、矿物收藏\n描述: 雄黄含砷，具有毒性，加热产生砒霜。与雌黄常共生，称「矿物鸳鸯」。",
-    },
-    {
-        "question": "这个矿物硬度高吗？日常佩戴要注意什么？",
-        "context": "名称: 萤石\n化学式: CaF₂\n硬度: 4\n光泽: 玻璃光泽\n颜色: 紫色/绿色/蓝色\n产地: 热液矿床\n用途: 冶金助熔剂、光学镜片\n描述: 萤石颜色丰富，紫外线下发荧光，但硬度低易划伤。",
-    },
-]
-
-
-def run_tests():
+def main():
     print("\n" + "=" * 60)
-    print("  矿物识别助手 — 推理测试")
-    print("=" * 60 + "\n")
+    print("  Qwen3.5-2B 矿物识别助手 — 推理测试")
+    print("=" * 60)
 
-    # 1. 基础问答
-    print("─" * 50)
-    print("  一、基础矿物问答")
-    print("─" * 50)
-    for i, q in enumerate(TEST_QUESTIONS, 1):
-        print(f"\nQ{i}: {q}")
-        answer = ask(q)
-        print(f"A: {answer}")
-        print()
-
-    # 2. 带 mineralContext 的问答 (模拟后端识别后咨询场景)
+    # ── 一、文本问答 ──
     print("\n" + "─" * 50)
-    print("  二、矿物识别后咨询 (mineralContext)")
+    print("  一、文本问答")
     print("─" * 50)
-    for i, item in enumerate(TEST_CONTEXTUAL, 1):
-        print(f"\n[矿物信息]: {item['context'][:80]}...")
-        print(f"Q{i}: {item['question']}")
-        answer = ask(item["question"], mineral_context=item["context"])
-        print(f"A: {answer}")
-        print()
+    questions = [
+        "什么是莫氏硬度？",
+        "石英和方解石怎么区分？",
+        "请介绍一下黄铁矿。",
+        "黄金为什么是黄色的？",
+    ]
+    for q in questions:
+        print(f"\nQ: {q}")
+        print(f"A: {ask(q)[:300]}")
 
+    # ── 二、矿物上下文问答 ──
+    print("\n" + "─" * 50)
+    print("  二、mineralContext (模拟后端识别后咨询)")
+    print("─" * 50)
+    ctx_q = [
+        ("这个矿物有什么用途？", "名称: 磁铁矿\n化学式: Fe3O4\n硬度: 5.5-6.5\n光泽: 金属光泽\n颜色: 铁黑色\n用途: 铁矿石、磁性材料"),
+        ("它有毒吗？怎么安全收藏？", "名称: 辰砂\n化学式: HgS\n硬度: 2-2.5\n颜色: 鲜红色\n描述: 辰砂含汞，加热释放汞蒸气"),
+    ]
+    for q, ctx in ctx_q:
+        print(f"\n[矿物信息]: {ctx[:60]}...")
+        print(f"Q: {q}")
+        print(f"A: {ask(q, mineral_context=ctx)[:300]}")
 
-def interactive_mode():
-    print("\n" + "=" * 60)
-    print("  矿物知识问答助手 — 交互模式")
-    print("  输入 'quit' 或 'exit' 退出")
-    print("=" * 60 + "\n")
+    # ── 三、图片检测 ──
+    print("\n" + "─" * 50)
+    print("  三、图片检测 (如果有测试图片)")
+    print("─" * 50)
+    test_img_path = "D:\\OneDrive\\Desktop\\train\\test_mineral.jpg"
+    if os.path.exists(test_img_path):
+        img = Image.open(test_img_path).convert("RGB")
+        print(f"  图片: {test_img_path} ({img.size})")
+        result = ask("请识别图片中的矿物。", image=img)
+        print(f"  结果: {result[:500]}")
+    else:
+        print("  (无测试图片，跳过。放一张 test_mineral.jpg 到 train 目录即可测试)")
 
-    while True:
-        try:
-            q = input("\n你: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\n再见！")
-            break
-
-        if not q:
-            continue
-        if q.lower() in ("quit", "exit", "q"):
-            print("再见！")
-            break
-
-        print("助手: ", end="", flush=True)
-        answer = ask(q)
-        print(answer)
+    # ── 交互模式 ──
+    if "--interactive" in sys.argv:
+        print("\n" + "=" * 60)
+        print("  交互模式 (输入 quit 退出)")
+        print("=" * 60)
+        while True:
+            try:
+                q = input("\n你: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                break
+            if q.lower() in ("quit", "exit", "q"):
+                break
+            if q.startswith("@"):
+                path = q[1:].strip()
+                try:
+                    img = Image.open(path).convert("RGB")
+                    print(f"  [已加载图片: {img.size}]")
+                    det_q = input("  (按回车用默认检测提示词): ").strip()
+                    if not det_q:
+                        det_q = "请识别图片中的矿物，给出名称和位置框。"
+                    print("助手: ", end="", flush=True)
+                    print(ask(det_q, image=img))
+                except Exception as e:
+                    print(f"  加载图片失败: {e}")
+                continue
+            if not q:
+                continue
+            print("助手: ", end="", flush=True)
+            print(ask(q))
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "--interactive":
-        interactive_mode()
-    else:
-        run_tests()
-        print("\n" + "=" * 60)
-        print("  测试完成！运行 --interactive 进入交互模式")
-        print("=" * 60 + "\n")
+    main()
