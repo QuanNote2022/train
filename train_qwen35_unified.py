@@ -214,14 +214,12 @@ print("  [2/2] 训练图片检测 (270 images)")
 print("=" * 50)
 
 # 用 processor 逐条预处理，让 dataset 自带 input_ids/pixel_values
-# 这样 SFTTrainer 的默认 collator 就能直接用了
 print("Preprocessing VL dataset with processor...")
-processor = tokenizer  # fallback; Qwen3.5 的 processor 由 model.processor 提供
+# 只加载一次 processor (不要每条都加载，太慢)
+from transformers import AutoProcessor
+proc = AutoProcessor.from_pretrained(MODEL_NAME)
 
 def preprocess_vl(example):
-    """用 model 内置 processor 处理单条数据"""
-    from transformers import AutoProcessor
-    proc = model.processor if hasattr(model, 'processor') else AutoProcessor.from_pretrained(MODEL_NAME)
     result = proc(
         text=example["text"],
         images=example["images"],
@@ -230,7 +228,6 @@ def preprocess_vl(example):
         truncation=True,
         max_length=MAX_SEQ_LENGTH,
     )
-    # squeeze batch dim (单条处理)
     return {
         "input_ids": result["input_ids"][0],
         "attention_mask": result["attention_mask"][0],
