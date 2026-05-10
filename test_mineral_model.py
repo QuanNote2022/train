@@ -18,8 +18,12 @@ SYSTEM_PROMPT = (
 )
 
 DETECTION_SYSTEM = (
-    "你是一个专业的矿物识别专家。请仔细分析图片，识别图片中的矿物。"
-    "请以JSON格式返回识别结果，包含矿物名称、置信度和边界框(bbox)。"
+    "你是一个专业的矿物识别专家。请仔细分析图片中的矿物，"
+    "以JSON格式输出识别结果，包含以下字段："
+    "label(矿物名称)、confidence(置信度0-1)、formula(化学式)、"
+    "hardness(硬度)、luster(光泽)、color(颜色)、origin(产地)、"
+    "uses(用途)、description(描述)。"
+    "如果无法识别，label输出\"未知\"。"
 )
 
 # ============================================================
@@ -44,6 +48,9 @@ else:
 
 FastVisionModel.for_inference(model)
 
+from transformers import AutoProcessor
+proc = AutoProcessor.from_pretrained("Qwen/Qwen3.5-2B")
+
 # ============================================================
 def ask(question: str, mineral_context: str = None, image: Image.Image = None) -> str:
     """调用 Qwen3.5 多模态模型"""
@@ -57,11 +64,25 @@ def ask(question: str, mineral_context: str = None, image: Image.Image = None) -
 
     messages = [
         {"role": "system", "content": system_content},
-        {"role": "user", "content": question},
     ]
 
+    if image is not None:
+        messages.append({
+            "role": "user",
+            "content": [
+                {"type": "image"},
+                {"type": "text", "text": question},
+            ],
+        })
+    else:
+        messages.append({"role": "user", "content": question})
+
     text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    inputs = tokenizer(text, return_tensors="pt").to(model.device)
+
+    if image is not None:
+        inputs = proc(text=text, images=[image], return_tensors="pt").to(model.device)
+    else:
+        inputs = tokenizer(text, return_tensors="pt").to(model.device)
 
     with torch.no_grad():
         outputs = model.generate(
@@ -141,7 +162,7 @@ def main():
                     print(f"  [已加载图片: {img.size}]")
                     det_q = input("  (按回车用默认检测提示词): ").strip()
                     if not det_q:
-                        det_q = "请识别图片中的矿物，给出名称和位置框。"
+                        det_q = "请识别图片中的矿物。"
                     print("助手: ", end="", flush=True)
                     print(ask(det_q, image=img))
                 except Exception as e:

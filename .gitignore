@@ -1,0 +1,27 @@
+img/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.idea/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Claude Code
+.claude/
+
+# Unsloth compiled cache
+unsloth_compiled_cache/
+
+# Model artifacts (checkpoints, merged weights, gguf)
+mineral_unified_model/
+
+# PyTorch training artifacts
+*.pt
+*.pth
+*.safetensors
+*.gguf
