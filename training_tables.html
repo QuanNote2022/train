@@ -1,0 +1,699 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>模型微调图表</title>
+  <style>
+    :root {
+      --ink: #182026;
+      --muted: #5f6b75;
+      --line: #d8dee5;
+      --head: #eef3f8;
+      --band: #f8fafc;
+      --accent: #1f6feb;
+      --bg: #ffffff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif;
+      line-height: 1.6;
+    }
+
+    .page {
+      width: min(1160px, calc(100% - 48px));
+      margin: 0 auto;
+      padding: 44px 0 64px;
+    }
+
+    header {
+      border-bottom: 2px solid var(--ink);
+      padding-bottom: 18px;
+      margin-bottom: 28px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+      line-height: 1.25;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .toc {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 10px;
+      margin: 0 0 30px;
+      padding: 0;
+      list-style: none;
+    }
+
+    .toc a {
+      display: block;
+      border: 1px solid var(--line);
+      color: var(--ink);
+      text-decoration: none;
+      padding: 10px 12px;
+      font-size: 14px;
+      background: var(--band);
+    }
+
+    .toc a:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    section {
+      margin-top: 34px;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: 20px;
+      line-height: 1.35;
+      font-weight: 700;
+    }
+
+    .note {
+      margin: -4px 0 12px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      background: white;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 760px;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      vertical-align: top;
+      text-align: left;
+    }
+
+    th {
+      background: var(--head);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    tbody tr:nth-child(even) td {
+      background: var(--band);
+    }
+
+    .num {
+      text-align: right;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+
+    code {
+      font-family: Consolas, "SFMono-Regular", Menlo, monospace;
+      font-size: 0.95em;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+
+    .footnote {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .figure-wrap {
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      background: white;
+      padding: 14px;
+    }
+
+    .figure-wrap svg {
+      display: block;
+      width: 100%;
+      min-width: 900px;
+      height: auto;
+    }
+
+    .node {
+      fill: #ffffff;
+      stroke: #9aa8b6;
+      stroke-width: 1.4;
+    }
+
+    .node-strong {
+      fill: #eef6ff;
+      stroke: var(--accent);
+      stroke-width: 1.6;
+    }
+
+    .node-soft {
+      fill: #f6f8fa;
+      stroke: #adb8c4;
+      stroke-width: 1.2;
+    }
+
+    .arrow {
+      fill: none;
+      stroke: #5c6b78;
+      stroke-width: 1.6;
+      marker-end: url(#arrowhead);
+    }
+
+    .flow-label {
+      fill: var(--ink);
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .flow-note {
+      fill: var(--muted);
+      font-size: 12px;
+    }
+
+    .axis {
+      stroke: #6b7784;
+      stroke-width: 1;
+    }
+
+    .grid {
+      stroke: #e3e8ee;
+      stroke-width: 1;
+    }
+
+    .loss-text {
+      fill: var(--ink);
+      font-size: 12px;
+    }
+
+    .loss-muted {
+      fill: var(--muted);
+      font-size: 11px;
+    }
+
+    .loss-line-text {
+      fill: none;
+      stroke: #1f6feb;
+      stroke-width: 2.5;
+    }
+
+    .loss-line-image {
+      fill: none;
+      stroke: #0f766e;
+      stroke-width: 2.5;
+    }
+
+    .dot-text {
+      fill: #1f6feb;
+      stroke: white;
+      stroke-width: 1.4;
+    }
+
+    .dot-image {
+      fill: #0f766e;
+      stroke: white;
+      stroke-width: 1.4;
+    }
+
+    @media print {
+      body {
+        background: white;
+      }
+
+      .page {
+        width: 100%;
+        padding: 0;
+      }
+
+      .toc {
+        display: none;
+      }
+
+      section {
+        break-inside: avoid;
+      }
+
+      .table-wrap {
+        overflow: visible;
+      }
+
+      .figure-wrap {
+        overflow: visible;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <h1>模型微调图表</h1>
+      <p class="subtitle">基于 <code>train/train_qwen35_unified.py</code>、本地文本数据、图片目录和训练产物整理。</p>
+    </header>
+
+    <ul class="toc" aria-label="图表目录">
+      <li><a href="#figure-1">图1 微调训练总体流程</a></li>
+      <li><a href="#figure-2">图2 矿物识别样本构建流程</a></li>
+      <li><a href="#figure-3">图3 训练损失变化曲线</a></li>
+      <li><a href="#table-1">表1 数据集组成</a></li>
+      <li><a href="#table-2">表2 LoRA / QLoRA 微调参数</a></li>
+      <li><a href="#table-3">表3 两阶段训练超参数</a></li>
+      <li><a href="#table-4">表4 20 类矿物图片数据分布</a></li>
+      <li><a href="#table-5">表5 模型训练输出文件</a></li>
+    </ul>
+
+    <section id="figure-1">
+      <h2>图1 微调训练总体流程</h2>
+      <div class="figure-wrap">
+        <svg viewBox="0 0 1100 430" role="img" aria-label="微调训练总体流程图">
+          <defs>
+            <marker id="arrowhead" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+              <polygon points="0 0, 9 3.5, 0 7" fill="#5c6b78"></polygon>
+            </marker>
+          </defs>
+
+          <rect class="node-soft" x="42" y="46" width="170" height="62" rx="8"></rect>
+          <text class="flow-label" x="127" y="72" text-anchor="middle">文本问答数据</text>
+          <text class="flow-note" x="127" y="94" text-anchor="middle">train.json / eval.json</text>
+
+          <rect class="node-soft" x="42" y="160" width="170" height="62" rx="8"></rect>
+          <text class="flow-label" x="127" y="186" text-anchor="middle">矿物图片数据</text>
+          <text class="flow-note" x="127" y="208" text-anchor="middle">20 类 / 300 张</text>
+
+          <rect class="node" x="262" y="46" width="170" height="62" rx="8"></rect>
+          <text class="flow-label" x="347" y="72" text-anchor="middle">ChatML 转换</text>
+          <text class="flow-note" x="347" y="94" text-anchor="middle">system / user / assistant</text>
+
+          <rect class="node" x="262" y="160" width="170" height="62" rx="8"></rect>
+          <text class="flow-label" x="347" y="186" text-anchor="middle">图文样本构建</text>
+          <text class="flow-note" x="347" y="208" text-anchor="middle">image + JSON answer</text>
+
+          <rect class="node-strong" x="482" y="102" width="170" height="74" rx="8"></rect>
+          <text class="flow-label" x="567" y="130" text-anchor="middle">Qwen/Qwen3.5-2B</text>
+          <text class="flow-note" x="567" y="153" text-anchor="middle">多模态基座模型</text>
+
+          <rect class="node-strong" x="704" y="102" width="170" height="74" rx="8"></rect>
+          <text class="flow-label" x="789" y="130" text-anchor="middle">4-bit QLoRA</text>
+          <text class="flow-note" x="789" y="153" text-anchor="middle">冻结主体 + LoRA 适配器</text>
+
+          <rect class="node" x="262" y="300" width="170" height="62" rx="8"></rect>
+          <text class="flow-label" x="347" y="326" text-anchor="middle">文本问答 SFT</text>
+          <text class="flow-note" x="347" y="348" text-anchor="middle">max_steps = 80</text>
+
+          <rect class="node" x="482" y="300" width="170" height="62" rx="8"></rect>
+          <text class="flow-label" x="567" y="326" text-anchor="middle">图片识别 SFT</text>
+          <text class="flow-note" x="567" y="348" text-anchor="middle">max_steps = 800</text>
+
+          <rect class="node-soft" x="704" y="286" width="170" height="90" rx="8"></rect>
+          <text class="flow-label" x="789" y="315" text-anchor="middle">保存训练产物</text>
+          <text class="flow-note" x="789" y="338" text-anchor="middle">lora_adapter</text>
+          <text class="flow-note" x="789" y="358" text-anchor="middle">merged_16bit / gguf</text>
+
+          <path class="arrow" d="M212 77 L262 77"></path>
+          <path class="arrow" d="M212 191 L262 191"></path>
+          <path class="arrow" d="M432 77 C455 77 455 120 482 126"></path>
+          <path class="arrow" d="M432 191 C455 191 455 158 482 150"></path>
+          <path class="arrow" d="M652 139 L704 139"></path>
+          <path class="arrow" d="M789 176 C789 224 347 244 347 300"></path>
+          <path class="arrow" d="M432 331 L482 331"></path>
+          <path class="arrow" d="M652 331 L704 331"></path>
+        </svg>
+      </div>
+      <p class="footnote">说明：当前脚本中阶段一训练调用被注释，但本地目录保留了文本问答阶段 checkpoint；默认运行路径会执行矿物图片识别阶段并保存模型。</p>
+    </section>
+
+    <section id="figure-2">
+      <h2>图2 矿物识别样本构建流程</h2>
+      <div class="figure-wrap">
+        <svg viewBox="0 0 1100 320" role="img" aria-label="矿物识别样本构建流程图">
+          <defs>
+            <marker id="arrowhead2" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+              <polygon points="0 0, 9 3.5, 0 7" fill="#5c6b78"></polygon>
+            </marker>
+          </defs>
+
+          <style>
+            #figure-2 .arrow { marker-end: url(#arrowhead2); }
+          </style>
+
+          <rect class="node-soft" x="38" y="118" width="132" height="72" rx="8"></rect>
+          <text class="flow-label" x="104" y="146" text-anchor="middle">图片文件夹</text>
+          <text class="flow-note" x="104" y="168" text-anchor="middle">石英_quartz</text>
+
+          <rect class="node" x="210" y="118" width="132" height="72" rx="8"></rect>
+          <text class="flow-label" x="276" y="146" text-anchor="middle">提取矿物名</text>
+          <text class="flow-note" x="276" y="168" text-anchor="middle">split("_")[0]</text>
+
+          <rect class="node" x="382" y="118" width="132" height="72" rx="8"></rect>
+          <text class="flow-label" x="448" y="146" text-anchor="middle">知识库校验</text>
+          <text class="flow-note" x="448" y="168" text-anchor="middle">MINERAL_INFO</text>
+
+          <rect class="node" x="554" y="52" width="132" height="72" rx="8"></rect>
+          <text class="flow-label" x="620" y="80" text-anchor="middle">读取图片</text>
+          <text class="flow-note" x="620" y="102" text-anchor="middle">PIL 转 RGB</text>
+
+          <rect class="node" x="554" y="184" width="132" height="72" rx="8"></rect>
+          <text class="flow-label" x="620" y="212" text-anchor="middle">生成答案</text>
+          <text class="flow-note" x="620" y="234" text-anchor="middle">结构化 JSON</text>
+
+          <rect class="node" x="726" y="118" width="132" height="72" rx="8"></rect>
+          <text class="flow-label" x="792" y="146" text-anchor="middle">拼接 ChatML</text>
+          <text class="flow-note" x="792" y="168" text-anchor="middle">随机提示词</text>
+
+          <rect class="node-strong" x="898" y="118" width="152" height="72" rx="8"></rect>
+          <text class="flow-label" x="974" y="146" text-anchor="middle">Dataset 划分</text>
+          <text class="flow-note" x="974" y="168" text-anchor="middle">270 训练 / 30 验证</text>
+
+          <path class="arrow" d="M170 154 L210 154"></path>
+          <path class="arrow" d="M342 154 L382 154"></path>
+          <path class="arrow" d="M514 154 C532 154 533 88 554 88"></path>
+          <path class="arrow" d="M514 154 C532 154 533 220 554 220"></path>
+          <path class="arrow" d="M686 88 C712 88 704 136 726 146"></path>
+          <path class="arrow" d="M686 220 C712 220 704 172 726 162"></path>
+          <path class="arrow" d="M858 154 L898 154"></path>
+        </svg>
+      </div>
+      <p class="footnote">说明：识别样本的监督目标来自本地矿物知识库，输出字段包括 label、confidence、formula、hardness、luster、color、origin、uses、description。</p>
+    </section>
+
+    <section id="figure-3">
+      <h2>图3 训练损失变化曲线</h2>
+      <div class="figure-wrap">
+        <svg viewBox="0 0 1100 420" role="img" aria-label="文本问答和矿物图片识别训练损失曲线">
+          <rect x="24" y="18" width="1052" height="374" fill="#ffffff" stroke="#e2e8f0"></rect>
+
+          <text class="flow-label" x="295" y="46" text-anchor="middle">文本问答阶段</text>
+          <text class="flow-note" x="295" y="66" text-anchor="middle">checkpoint-80, loss 2.0568 -> 0.6526</text>
+          <line class="grid" x1="80" y1="80" x2="510" y2="80"></line>
+          <line class="grid" x1="80" y1="210" x2="510" y2="210"></line>
+          <line class="grid" x1="80" y1="340" x2="510" y2="340"></line>
+          <line class="axis" x1="80" y1="340" x2="510" y2="340"></line>
+          <line class="axis" x1="80" y1="80" x2="80" y2="340"></line>
+          <text class="loss-muted" x="66" y="84" text-anchor="end">2.2</text>
+          <text class="loss-muted" x="66" y="214" text-anchor="end">1.1</text>
+          <text class="loss-muted" x="66" y="344" text-anchor="end">0</text>
+          <text class="loss-muted" x="80" y="364" text-anchor="middle">0</text>
+          <text class="loss-muted" x="295" y="364" text-anchor="middle">40</text>
+          <text class="loss-muted" x="510" y="364" text-anchor="middle">80</text>
+          <polyline class="loss-line-text" points="133.8,96.9 187.5,179.7 241.2,200.5 295.0,216.6 348.8,231.9 402.5,247.8 456.2,258.1 510.0,262.9"></polyline>
+          <circle class="dot-text" cx="133.8" cy="96.9" r="4"></circle>
+          <circle class="dot-text" cx="187.5" cy="179.7" r="4"></circle>
+          <circle class="dot-text" cx="241.2" cy="200.5" r="4"></circle>
+          <circle class="dot-text" cx="295.0" cy="216.6" r="4"></circle>
+          <circle class="dot-text" cx="348.8" cy="231.9" r="4"></circle>
+          <circle class="dot-text" cx="402.5" cy="247.8" r="4"></circle>
+          <circle class="dot-text" cx="456.2" cy="258.1" r="4"></circle>
+          <circle class="dot-text" cx="510.0" cy="262.9" r="4"></circle>
+          <text class="loss-text" x="142" y="92">2.0568</text>
+          <text class="loss-text" x="474" y="252">0.6526</text>
+          <text class="loss-muted" x="295" y="392" text-anchor="middle">step</text>
+
+          <text class="flow-label" x="825" y="46" text-anchor="middle">矿物图片识别阶段（前 200 步）</text>
+          <text class="flow-note" x="825" y="66" text-anchor="middle">checkpoint-200, loss 0.5224 -> 0.0359</text>
+          <line class="grid" x1="610" y1="80" x2="1040" y2="80"></line>
+          <line class="grid" x1="610" y1="210" x2="1040" y2="210"></line>
+          <line class="grid" x1="610" y1="340" x2="1040" y2="340"></line>
+          <line class="axis" x1="610" y1="340" x2="1040" y2="340"></line>
+          <line class="axis" x1="610" y1="80" x2="610" y2="340"></line>
+          <text class="loss-muted" x="596" y="84" text-anchor="end">0.56</text>
+          <text class="loss-muted" x="596" y="214" text-anchor="end">0.28</text>
+          <text class="loss-muted" x="596" y="344" text-anchor="end">0</text>
+          <text class="loss-muted" x="610" y="364" text-anchor="middle">0</text>
+          <text class="loss-muted" x="825" y="364" text-anchor="middle">100</text>
+          <text class="loss-muted" x="1040" y="364" text-anchor="middle">200</text>
+          <polyline class="loss-line-image" points="717.5,97.5 825.0,316.9 932.5,322.7 1040.0,323.3"></polyline>
+          <circle class="dot-image" cx="717.5" cy="97.5" r="4"></circle>
+          <circle class="dot-image" cx="825.0" cy="316.9" r="4"></circle>
+          <circle class="dot-image" cx="932.5" cy="322.7" r="4"></circle>
+          <circle class="dot-image" cx="1040.0" cy="323.3" r="4"></circle>
+          <text class="loss-text" x="727" y="92">0.5224</text>
+          <text class="loss-text" x="996" y="315">0.0359</text>
+          <text class="loss-muted" x="825" y="392" text-anchor="middle">step</text>
+        </svg>
+      </div>
+      <p class="footnote">说明：曲线数据来自 <code>text_checkpoint/checkpoint-80/trainer_state.json</code> 与 <code>img_checkpoint/checkpoint-800/trainer_state.json</code>；图片识别曲线仅截取前 200 步，完整训练参数仍为 800 步。</p>
+    </section>
+
+    <section id="table-1">
+      <h2>表1 数据集组成</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>数据类型</th>
+              <th>来源</th>
+              <th>训练集</th>
+              <th>验证集</th>
+              <th>合计</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>文本问答</td>
+              <td><code>train/data/*.json</code></td>
+              <td class="num">96</td>
+              <td class="num">11</td>
+              <td class="num">107</td>
+              <td>矿物知识、鉴定方法、上下文问答</td>
+            </tr>
+            <tr>
+              <td>矿物图片识别</td>
+              <td><code>train/img/</code></td>
+              <td class="num">270</td>
+              <td class="num">30</td>
+              <td class="num">300</td>
+              <td>20 类矿物，每类 15 张，按 9:1 划分</td>
+            </tr>
+            <tr>
+              <td>总计</td>
+              <td>本地数据</td>
+              <td class="num">366</td>
+              <td class="num">41</td>
+              <td class="num">407</td>
+              <td>文本 + 图文多模态样本</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="table-2">
+      <h2>表2 LoRA / QLoRA 微调参数</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>参数</th>
+              <th>取值</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>基座模型</td>
+              <td><code>Qwen/Qwen3.5-2B</code></td>
+            </tr>
+            <tr>
+              <td>微调方式</td>
+              <td>QLoRA</td>
+            </tr>
+            <tr>
+              <td>量化方式</td>
+              <td>4-bit</td>
+            </tr>
+            <tr>
+              <td>LoRA rank <code>r</code></td>
+              <td class="num">16</td>
+            </tr>
+            <tr>
+              <td>LoRA alpha</td>
+              <td class="num">16</td>
+            </tr>
+            <tr>
+              <td>LoRA dropout</td>
+              <td class="num">0.0</td>
+            </tr>
+            <tr>
+              <td>bias</td>
+              <td><code>none</code></td>
+            </tr>
+            <tr>
+              <td>目标模块</td>
+              <td><code>q_proj</code>, <code>k_proj</code>, <code>v_proj</code>, <code>o_proj</code>, <code>gate_proj</code>, <code>up_proj</code>, <code>down_proj</code></td>
+            </tr>
+            <tr>
+              <td>梯度检查点</td>
+              <td><code>unsloth</code></td>
+            </tr>
+            <tr>
+              <td>随机种子</td>
+              <td class="num">42</td>
+            </tr>
+            <tr>
+              <td>最大序列长度</td>
+              <td class="num">1024</td>
+            </tr>
+            <tr>
+              <td>训练精度</td>
+              <td><code>torch.float16</code></td>
+            </tr>
+            <tr>
+              <td>优化器</td>
+              <td><code>adamw_8bit</code></td>
+            </tr>
+            <tr>
+              <td>学习率调度器</td>
+              <td>cosine</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="table-3">
+      <h2>表3 两阶段训练超参数</h2>
+      <p class="note">当前脚本中 <code>trainer1.train()</code> 被注释，实际默认执行矿物图片识别阶段；本地目录中仍保留文本问答阶段 checkpoint。</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>训练阶段</th>
+              <th>batch size</th>
+              <th>梯度累积</th>
+              <th>等效 batch size</th>
+              <th>warmup steps</th>
+              <th>max steps</th>
+              <th>learning rate</th>
+              <th>save steps</th>
+              <th>logging steps</th>
+              <th>eval strategy</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>文本问答 SFT</td>
+              <td class="num">2</td>
+              <td class="num">4</td>
+              <td class="num">8</td>
+              <td class="num">5</td>
+              <td class="num">80</td>
+              <td class="num">2e-4</td>
+              <td class="num">40</td>
+              <td class="num">10</td>
+              <td><code>no</code></td>
+            </tr>
+            <tr>
+              <td>矿物图片识别 SFT</td>
+              <td class="num">1</td>
+              <td class="num">4</td>
+              <td class="num">4</td>
+              <td class="num">10</td>
+              <td class="num">800</td>
+              <td class="num">2e-4</td>
+              <td class="num">200</td>
+              <td class="num">50</td>
+              <td><code>no</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="table-4">
+      <h2>表4 20 类矿物图片数据分布</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>矿物类别</th>
+              <th>图片数</th>
+              <th>矿物类别</th>
+              <th>图片数</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>石英</td><td class="num">15</td><td>紫水晶</td><td class="num">15</td></tr>
+            <tr><td>黄铁矿</td><td class="num">15</td><td>方解石</td><td class="num">15</td></tr>
+            <tr><td>萤石</td><td class="num">15</td><td>赤铁矿</td><td class="num">15</td></tr>
+            <tr><td>磁铁矿</td><td class="num">15</td><td>孔雀石</td><td class="num">15</td></tr>
+            <tr><td>蓝铜矿</td><td class="num">15</td><td>石膏</td><td class="num">15</td></tr>
+            <tr><td>方铅矿</td><td class="num">15</td><td>辰砂</td><td class="num">15</td></tr>
+            <tr><td>自然金</td><td class="num">15</td><td>自然铜</td><td class="num">15</td></tr>
+            <tr><td>硫磺</td><td class="num">15</td><td>绿柱石</td><td class="num">15</td></tr>
+            <tr><td>刚玉</td><td class="num">15</td><td>黄玉</td><td class="num">15</td></tr>
+            <tr><td>电气石</td><td class="num">15</td><td>闪锌矿</td><td class="num">15</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="table-5">
+      <h2>表5 模型训练输出文件</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>输出目录</th>
+              <th>内容</th>
+              <th>用途</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>lora_adapter/</code></td>
+              <td>LoRA 适配器权重</td>
+              <td>体积小，需配合基座模型加载</td>
+            </tr>
+            <tr>
+              <td><code>merged_16bit/</code></td>
+              <td>合并后的 16-bit 完整模型</td>
+              <td>可直接用于推理部署</td>
+            </tr>
+            <tr>
+              <td><code>gguf/</code></td>
+              <td>GGUF 量化模型</td>
+              <td>用于 llama.cpp / Ollama 等本地推理</td>
+            </tr>
+            <tr>
+              <td><code>img_checkpoint/</code></td>
+              <td>图片识别阶段 checkpoint</td>
+              <td>断点恢复、训练过程追踪</td>
+            </tr>
+            <tr>
+              <td><code>text_checkpoint/</code></td>
+              <td>文本问答阶段 checkpoint</td>
+              <td>文本问答训练记录</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

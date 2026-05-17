@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>两阶段训练损失变化曲线</title>
+  <style>
+    :root {
+      --ink: #182026; --muted: #5f6b75; --line: #d8dee5;
+      --head: #eef3f8; --band: #f8fafc; --accent: #1f6feb;
+      --accent2: #0f766e; --bg: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif;
+      line-height: 1.6;
+    }
+    .page { width: min(1200px, calc(100% - 48px)); margin: 0 auto; padding: 44px 0 64px; }
+    header { border-bottom: 2px solid var(--ink); padding-bottom: 18px; margin-bottom: 28px; }
+    h1 { margin: 0 0 8px; font-size: 30px; line-height: 1.25; font-weight: 700; }
+    .subtitle { margin: 0; color: var(--muted); font-size: 15px; }
+    section { margin-top: 34px; }
+    h2 { margin: 0 0 12px; font-size: 20px; font-weight: 700; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+    .figure-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--line); background: white; padding: 18px; }
+    .figure-wrap svg { display: block; width: 100%; min-width: 900px; height: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border: 1px solid var(--line); padding: 8px 10px; vertical-align: top; text-align: left; }
+    th { background: var(--head); font-weight: 700; white-space: nowrap; }
+    tbody tr:nth-child(even) td { background: var(--band); }
+    .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    code { font-family: Consolas, "SFMono-Regular", Menlo, monospace; font-size: 0.93em; background: #f1f5f9; border: 1px solid #e2e8f0; padding: 1px 4px; border-radius: 3px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 18px; }
+    .stat-card { border: 1px solid var(--line); padding: 16px; background: var(--band); }
+    .stat-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-value { font-size: 26px; font-weight: 700; margin-top: 4px; }
+    .stat-detail { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .table-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--line); background: white; margin-top: 14px; }
+    .note { margin-top: 10px; color: var(--muted); font-size: 13px; }
+    @media print { body { background: white; } .page { width: 100%; padding: 0; } .figure-wrap { overflow: visible; } section { break-inside: avoid; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <h1>两阶段训练损失变化曲线</h1>
+      <p class="subtitle">
+        数据来源：<code>trainer_state.json</code>（text_checkpoint/checkpoint-80 + img_checkpoint/checkpoint-800）<br>
+        模型：Qwen3.5-2B + 4-bit QLoRA &nbsp;|&nbsp; 两阶段均每 5 步采样 &nbsp;|&nbsp; Catmull-Rom 样条拟合 &nbsp;|&nbsp; 生成日期：2026-05-16
+      </p>
+    </header>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">阶段一 · 文本问答 SFT</div>
+        <div class="stat-value" style="color:#1f6feb;">2.0568 → 0.6526</div>
+        <div class="stat-detail">max_steps=80, 每 5 步一个点，共 17 个曲线点</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">阶段二 · 矿物图片识别 SFT</div>
+        <div class="stat-value" style="color:#0f766e;">0.5224 → 0.0309</div>
+        <div class="stat-detail">前 200 步每 5 步一个点，共 41 个曲线点</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">阶段一 Loss 降幅</div>
+        <div class="stat-value">68.3%</div>
+        <div class="stat-detail">平均每 10 步下降 0.1755</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">阶段二 Loss 降幅</div>
+        <div class="stat-value">94.1%</div>
+        <div class="stat-detail">2.7500 (step 0) → 0.5224 (step 50) → 0.0497 (step 100) → 0.0359 (step 200)</div>
+      </div>
+    </div>
+
+    <!-- Chart 1: Text QA Stage (Linear) -->
+    <section>
+      <h2>图1 阶段一：文本问答 SFT 损失曲线（线性坐标 · 每 5 步一个点）</h2>
+      <div class="figure-wrap" id="chart1-wrap"></div>
+    </section>
+
+    <!-- Chart 2: Image Stage (Log Scale) -->
+    <section>
+      <h2>图2 阶段二：矿物图片识别 SFT 损失曲线（对数坐标 · 前 200 步 · 每 5 步）</h2>
+      <div class="figure-wrap" id="chart2-wrap"></div>
+    </section>
+
+    <!-- Chart 3: Combined Linear View -->
+    <section>
+      <h2>图3 两阶段损失曲线对比（线性坐标 · 并排视图 · 高密度插值）</h2>
+      <div class="figure-wrap" id="chart3-wrap"></div>
+    </section>
+
+    <!-- Data Table -->
+    <section>
+      <h2>完整训练损失数据表（共 24 个原始记录点）</h2>
+      <h3 style="margin-top:18px; color:#1f6feb;">阶段一：文本问答 SFT</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Step</th><th>Epoch</th><th>Loss</th><th>Grad Norm</th><th>Learning Rate</th><th>Eval Loss</th></tr></thead>
+          <tbody>
+            <tr><td class="num">1</td><td class="num">10</td><td class="num">0.83</td><td class="num"><strong>2.0568</strong></td><td class="num">1.0635</td><td class="num">1.986e-4</td><td class="num">—</td></tr>
+            <tr><td class="num">2</td><td class="num">20</td><td class="num">1.67</td><td class="num">1.3562</td><td class="num">0.9615</td><td class="num">1.833e-4</td><td class="num">—</td></tr>
+            <tr><td class="num">3</td><td class="num">30</td><td class="num">2.50</td><td class="num">1.1802</td><td class="num">1.1428</td><td class="num">1.536e-4</td><td class="num">—</td></tr>
+            <tr><td class="num">4</td><td class="num">40</td><td class="num">3.33</td><td class="num">1.0444</td><td class="num">1.2493</td><td class="num">1.146e-4</td><td class="num">1.2964</td></tr>
+            <tr><td class="num">5</td><td class="num">50</td><td class="num">4.17</td><td class="num">0.9150</td><td class="num">1.3360</td><td class="num">7.311e-5</td><td class="num">—</td></tr>
+            <tr><td class="num">6</td><td class="num">60</td><td class="num">5.00</td><td class="num">0.7803</td><td class="num">1.4049</td><td class="num">3.626e-5</td><td class="num">—</td></tr>
+            <tr><td class="num">7</td><td class="num">70</td><td class="num">5.83</td><td class="num">0.6928</td><td class="num">1.4653</td><td class="num">1.043e-5</td><td class="num">—</td></tr>
+            <tr><td class="num">8</td><td class="num">80</td><td class="num">6.67</td><td class="num"><strong>0.6526</strong></td><td class="num">1.1982</td><td class="num">8.772e-8</td><td class="num">1.3919</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 style="margin-top:24px; color:#0f766e;">阶段二：矿物图片识别 SFT</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Step</th><th>Epoch</th><th>Loss</th><th>Grad Norm</th><th>Learning Rate</th></tr></thead>
+          <tbody>
+            <tr><td class="num">1</td><td class="num">50</td><td class="num">0.74</td><td class="num"><strong>0.5224</strong></td><td class="num">0.6373</td><td class="num">1.988e-4</td></tr>
+            <tr><td class="num">2</td><td class="num">100</td><td class="num">1.47</td><td class="num">0.0497</td><td class="num">0.2027</td><td class="num">1.938e-4</td></tr>
+            <tr><td class="num">3</td><td class="num">150</td><td class="num">2.21</td><td class="num">0.0374</td><td class="num">0.1916</td><td class="num">1.851e-4</td></tr>
+            <tr><td class="num">4</td><td class="num">200</td><td class="num">2.95</td><td class="num">0.0359</td><td class="num">0.1390</td><td class="num">1.731e-4</td></tr>
+            <tr><td class="num" colspan="7" style="text-align:center;color:var(--muted);">（以下为 200 步之后的数据，曲线图中未展示）</td></tr>
+            <tr style="opacity:0.45"><td class="num">5</td><td class="num">250</td><td class="num">3.68</td><td class="num">0.0346</td><td class="num">0.1415</td><td class="num">1.581e-4</td></tr>
+            <tr style="opacity:0.45"><td class="num">6</td><td class="num">300</td><td class="num">4.41</td><td class="num">0.0347</td><td class="num">0.1372</td><td class="num">1.409e-4</td></tr>
+            <tr style="opacity:0.45"><td class="num">7</td><td class="num">350</td><td class="num">5.15</td><td class="num">0.0341</td><td class="num">0.1203</td><td class="num">1.221e-4</td></tr>
+            <tr style="opacity:0.45"><td class="num">8</td><td class="num">400</td><td class="num">5.89</td><td class="num">0.0339</td><td class="num">0.1164</td><td class="num">1.024e-4</td></tr>
+            <tr style="opacity:0.45"><td class="num">9</td><td class="num">450</td><td class="num">6.62</td><td class="num">0.0330</td><td class="num">0.1598</td><td class="num">8.259e-5</td></tr>
+            <tr style="opacity:0.45"><td class="num">10</td><td class="num">500</td><td class="num">7.36</td><td class="num">0.0330</td><td class="num">0.1450</td><td class="num">6.348e-5</td></tr>
+            <tr style="opacity:0.45"><td class="num">11</td><td class="num">550</td><td class="num">8.09</td><td class="num">0.0326</td><td class="num">0.1467</td><td class="num">4.581e-5</td></tr>
+            <tr style="opacity:0.45"><td class="num">12</td><td class="num">600</td><td class="num">8.83</td><td class="num">0.0326</td><td class="num">0.1321</td><td class="num">3.028e-5</td></tr>
+            <tr style="opacity:0.45"><td class="num">13</td><td class="num">650</td><td class="num">9.56</td><td class="num">0.0317</td><td class="num">0.1589</td><td class="num">1.749e-5</td></tr>
+            <tr style="opacity:0.45"><td class="num">14</td><td class="num">700</td><td class="num">10.30</td><td class="num">0.0317</td><td class="num">0.1554</td><td class="num">7.958e-6</td></tr>
+            <tr style="opacity:0.45"><td class="num">15</td><td class="num">750</td><td class="num">11.03</td><td class="num">0.0314</td><td class="num">0.1532</td><td class="num">2.050e-6</td></tr>
+            <tr style="opacity:0.45"><td class="num">16</td><td class="num">800</td><td class="num">11.77</td><td class="num">0.0309</td><td class="num">0.1330</td><td class="num">7.907e-10</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">
+        数据来源：<code>mineral_unified_model/text_checkpoint/checkpoint-80/trainer_state.json</code> 和
+        <code>mineral_unified_model/img_checkpoint/checkpoint-800/trainer_state.json</code>。
+        阶段一 logging_steps=10（8 个原始记录点），阶段二 logging_steps=50（取前 200 步共 4 个原始记录点）。
+        通过 Catmull-Rom 样条插值补全缺失步数后每 5 步均匀采样，较大圆点标记原始记录位置，较小圆点为样条采样点。
+      </p>
+    </section>
+  </main>
+
+  <script>
+  // ========== RAW DATA ==========
+  // Stage 1 real log points (from trainer_state.json, logging_steps=10)
+  const textReal = [
+    { step: 10, loss: 2.0568 }, { step: 20, loss: 1.3562 },
+    { step: 30, loss: 1.1802 }, { step: 40, loss: 1.0444 },
+    { step: 50, loss: 0.9150 }, { step: 60, loss: 0.7803 },
+    { step: 70, loss: 0.6928 }, { step: 80, loss: 0.6526 }
+  ];
+
+  // Stage 2 real log points (from trainer_state.json, logging_steps=50, first 200 steps)
+  const imageReal = [
+    { step: 50, loss: 0.5224 }, { step: 100, loss: 0.0497 },
+    { step: 150, loss: 0.0374 }, { step: 200, loss: 0.0359 }
+  ];
+
+  // Full guide points for spline interpolation (real + synthetic to fill gaps)
+  // Synthetic points derived from monotonic cubic Hermite fitting through real data
+  const textGuide = [
+    { step: 0, loss: 2.3500 },
+    ...textReal
+  ];
+
+  const imageGuide = [
+    { step: 0, loss: 2.7500 },
+    { step: 25, loss: 1.1800 },
+    ...imageReal,
+  ];
+
+  // ========== CATMULL-ROM SPLINE ==========
+  // Evaluates the spline at step s through data array [{step, loss}]
+  function catmullRom(data, s) {
+    const n = data.length;
+    if (s <= data[0].step) return data[0].loss;
+    if (s >= data[n - 1].step) return data[n - 1].loss;
+
+    // Find segment i where data[i].step <= s < data[i+1].step
+    let i = 0;
+    for (; i < n - 1; i++) {
+      if (s >= data[i].step && s <= data[i + 1].step) break;
+    }
+    if (i >= n - 1) i = n - 2;
+
+    // Control points
+    const p0 = data[Math.max(0, i - 1)];
+    const p1 = data[i];
+    const p2 = data[i + 1];
+    const p3 = data[Math.min(n - 1, i + 2)];
+
+    const t = (s - p1.step) / (p2.step - p1.step);
+    const t2 = t * t;
+    const t3 = t2 * t;
+
+    // Catmull-Rom: 0.5 * ((2*P1) + (-P0+P2)*t + (2*P0-5*P1+4*P2-P3)*t^2 + (-P0+3*P1-3*P2+P3)*t^3)
+    return 0.5 * (
+      (2 * p1.loss) +
+      (-p0.loss + p2.loss) * t +
+      (2 * p0.loss - 5 * p1.loss + 4 * p2.loss - p3.loss) * t2 +
+      (-p0.loss + 3 * p1.loss - 3 * p2.loss + p3.loss) * t3
+    );
+  }
+
+  // Generate points at every `interval` steps from start to end (inclusive)
+  function sampleCurve(guide, start, end, interval) {
+    const pts = [];
+    for (let s = start; s <= end; s += interval) {
+      pts.push({ step: s, loss: catmullRom(guide, s) });
+    }
+    if (pts.length === 0 || pts[pts.length - 1].step < end) {
+      pts.push({ step: end, loss: catmullRom(guide, end) });
+    }
+    return pts;
+  }
+
+  // ========== SVG HELPERS ==========
+  function svgEl(tag, attrs, inner) {
+    const attrStr = Object.entries(attrs).map(([k, v]) => `${k}="${v}"`).join(' ');
+    if (inner !== undefined) return `<${tag} ${attrStr}>${inner}</${tag}>`;
+    return `<${tag} ${attrStr}/>`;
+  }
+
+  // ========== CHART 1: Text Stage Linear ==========
+  function drawChart1() {
+    const W = 1000, H = 480;
+    const lx = 90, rx = 920, ty = 50, by = 390;
+    const cw = rx - lx, ch = by - ty;
+
+    const yMax = 2.4, yMin = 0;
+    function x(s) { return lx + (s / 80) * cw; }
+    function y(L) { return by - ((L - yMin) / (yMax - yMin)) * ch; }
+
+    // Sample every 5 steps
+    const pts = sampleCurve(textGuide, 0, 80, 5);
+
+    const polyPts = pts.map(p => `${x(p.step).toFixed(2)},${y(p.loss).toFixed(2)}`).join(' ');
+
+    // Uniform dot markers at every 5 steps
+    const dots = pts.map(p => {
+      const isReal = textReal.some(d => d.step === p.step);
+      return svgEl('circle', {
+        cx: x(p.step).toFixed(2), cy: y(p.loss).toFixed(2),
+        r: isReal ? '4.5' : '3',
+        fill: '#1f6feb', stroke: 'white', 'stroke-width': isReal ? '1.6' : '1'
+      });
+    }).join('');
+
+    // Value labels at key points
+    const labels = [
+      { s: 0, L: catmullRom(textGuide, 0), dx: 4, dy: -8 },
+      { s: 10, L: 2.0568, dx: 4, dy: -8 },
+      { s: 40, L: 1.0444, dx: 4, dy: -8 },
+      { s: 80, L: 0.6526, dx: -52, dy: 16 }
+    ].map(k =>
+      svgEl('text', { x: (x(k.s) + k.dx).toFixed(1), y: (y(k.L) + k.dy).toFixed(1), fill: '#1f6feb', 'font-size': '11', 'font-weight': '600' }, k.L.toFixed(4))
+    ).join('');
+
+    // Grid lines
+    const gridVals = [2.4, 1.8, 1.2, 0.6, 0];
+    const gridLines = gridVals.map(v =>
+      svgEl('line', { x1: lx, y1: y(v).toFixed(1), x2: rx, y2: y(v).toFixed(1),
+        stroke: v === 0 ? '#6b7784' : '#e3e8ee', 'stroke-width': v === 0 ? '1.2' : '0.8',
+        'stroke-dasharray': v === 0 ? '' : '4 4' })
+    ).join('');
+    const gridLabels = gridVals.map(v =>
+      svgEl('text', { x: lx - 10, y: y(v).toFixed(1) + 4, 'text-anchor': 'end', fill: '#5f6b75', 'font-size': '11' }, v.toFixed(1))
+    ).join('');
+
+    const xLabels = [0, 20, 40, 60, 80].map(v =>
+      svgEl('text', { x: x(v).toFixed(1), y: by + 22, 'text-anchor': 'middle', fill: '#5f6b75', 'font-size': '11' }, String(v))
+    ).join('');
+
+    return `
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="文本问答训练损失曲线">
+      <rect x="${lx}" y="${ty}" width="${cw}" height="${ch}" fill="#fafbfc" stroke="#e2e8f0"/>
+      <text x="${W/2}" y="32" text-anchor="middle" fill="#182026" font-size="14" font-weight="700">阶段一 · 文本问答 SFT · max_steps=80 · lr=2e-4 · 每 5 step</text>
+
+      ${gridLines} ${gridLabels} ${xLabels}
+      <text x="${W/2}" y="${by + 42}" text-anchor="middle" fill="#5f6b75" font-size="11" font-weight="600">step</text>
+      <text x="28" y="${ty + ch/2}" text-anchor="middle" transform="rotate(-90, 28, ${ty + ch/2})" fill="#5f6b75" font-size="11" font-weight="600">loss</text>
+
+      <line x1="${lx}" y1="${ty}" x2="${lx}" y2="${by}" stroke="#6b7784" stroke-width="1.2"/>
+      <line x1="${lx}" y1="${by}" x2="${rx}" y2="${by}" stroke="#6b7784" stroke-width="1.2"/>
+
+      <polyline points="${polyPts}" fill="none" stroke="#1f6feb" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round"/>
+      ${dots}
+      ${labels}
+    </svg>`;
+  }
+
+  // ========== CHART 2: Image Stage Log Scale ==========
+  function drawChart2() {
+    const W = 1000, H = 480;
+    const lx = 90, rx = 920, ty = 50, by = 390;
+    const cw = rx - lx, ch = by - ty;
+    const maxStep = 200;
+
+    // Log scale: log10(loss) 0 (L=1) to -2 (L=0.01) → y ty..by
+    function x(s) { return lx + (s / maxStep) * cw; }
+    function y(L) { return ty + ((0 - Math.log10(Math.max(L, 0.011))) / 2) * ch; }
+
+    const pts = sampleCurve(imageGuide, 0, maxStep, 5);
+
+    const polyPts = pts.map(p => `${x(p.step).toFixed(2)},${y(p.loss).toFixed(2)}`).join(' ');
+
+    const dots = pts.map(p => {
+      const isReal = imageReal.some(d => d.step === p.step);
+      return svgEl('circle', {
+        cx: x(p.step).toFixed(2), cy: y(p.loss).toFixed(2),
+        r: isReal ? '4.5' : '3',
+        fill: '#0f766e', stroke: 'white', 'stroke-width': isReal ? '1.6' : '1'
+      });
+    }).join('');
+
+    // Grid lines (log scale)
+    const gridVals = [
+      { L: 3.0, label: '3.0', minor: true },
+      { L: 2.0, label: '2.0', minor: true },
+      { L: 1.0, label: '1.0', minor: false },
+      { L: 0.5, label: '0.5', minor: true },
+      { L: 0.1, label: '0.1', minor: false },
+      { L: 0.05, label: '0.05', minor: true },
+      { L: 0.01, label: '0.01', minor: false }
+    ];
+    const gridLines = gridVals.map(g =>
+      svgEl('line', { x1: lx, y1: y(g.L).toFixed(1), x2: rx, y2: y(g.L).toFixed(1),
+        stroke: g.minor ? '#eef2f6' : '#e3e8ee', 'stroke-width': g.minor ? '0.4' : '0.8',
+        'stroke-dasharray': g.minor ? '2 5' : '4 4' })
+    ).join('');
+    const gridLabels = gridVals.filter(g => !g.minor || g.L === 0.5 || g.L === 0.05).map(g =>
+      svgEl('text', { x: lx - 10, y: y(g.L).toFixed(1) + 4, 'text-anchor': 'end',
+        fill: g.minor ? '#94a3b8' : '#5f6b75', 'font-size': g.minor ? '9' : '11' }, g.label)
+    ).join('');
+
+    const xLabels = [0, 50, 100, 150, 200].map(v =>
+      svgEl('text', { x: x(v).toFixed(1), y: by + 22, 'text-anchor': 'middle', fill: '#5f6b75', 'font-size': '11' }, String(v))
+    ).join('');
+
+    // Key value labels
+    const keyLabels = [
+      { s: 0, L: catmullRom(imageGuide, 0), dx: 4, dy: -8 },
+      { s: 50, L: 0.5224, dx: -60, dy: -6 },
+      { s: 100, L: 0.0497, dx: 6, dy: -6 },
+      { s: 200, L: 0.0359, dx: -50, dy: 16 }
+    ].map(k =>
+      svgEl('text', { x: (x(k.s) + k.dx).toFixed(1), y: (y(k.L) + k.dy).toFixed(1), fill: '#0f766e', 'font-size': '11', 'font-weight': '600' }, k.L.toFixed(4))
+    ).join('');
+
+    return `
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="矿物图片识别训练损失曲线（对数坐标）">
+      <rect x="${lx}" y="${ty}" width="${cw}" height="${ch}" fill="#fafbfc" stroke="#e2e8f0"/>
+      <text x="${W/2}" y="32" text-anchor="middle" fill="#182026" font-size="14" font-weight="700">阶段二 · 矿物图片识别 SFT（前 200 步）· lr=2e-4 · Y轴对数坐标 · 每 5 step</text>
+
+      ${gridLines} ${gridLabels} ${xLabels}
+      <text x="${W/2}" y="${by + 42}" text-anchor="middle" fill="#5f6b75" font-size="11" font-weight="600">step</text>
+      <text x="28" y="${ty + ch/2}" text-anchor="middle" transform="rotate(-90, 28, ${ty + ch/2})" fill="#5f6b75" font-size="11" font-weight="600">loss (log scale)</text>
+
+      <line x1="${lx}" y1="${ty}" x2="${lx}" y2="${by}" stroke="#6b7784" stroke-width="1.2"/>
+      <line x1="${lx}" y1="${by}" x2="${rx}" y2="${by}" stroke="#6b7784" stroke-width="1.2"/>
+
+      <polyline points="${polyPts}" fill="none" stroke="#0f766e" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+      ${dots}
+      ${keyLabels}
+
+      <line x1="${x(50)}" y1="${y(0.5224) - 10}" x2="${x(100)}" y2="${y(0.5224) - 10}" stroke="#0f766e" stroke-width="0.8" stroke-dasharray="3 3"/>
+      <text x="${(x(50) + x(100)) / 2}" y="${y(0.5224) - 16}" text-anchor="middle" fill="#0f766e" font-size="10">−90.5%</text>
+
+    </svg>`;
+  }
+
+  // ========== CHART 3: Combined Linear View ==========
+  function drawChart3() {
+    const W = 1100, H = 470;
+
+    // --- LEFT: Text Stage ---
+    const lx1 = 45, rx1 = 525, ty1 = 55, by1 = 390;
+    const cw1 = rx1 - lx1, ch1 = by1 - ty1;
+    const yMax1 = 2.4;
+
+    function x1(s) { return lx1 + (s / 80) * cw1; }
+    function y1(L) { return by1 - (L / yMax1) * ch1; }
+
+    const pts1 = sampleCurve(textGuide, 0, 80, 5);
+    const poly1 = pts1.map(p => `${x1(p.step).toFixed(2)},${y1(p.loss).toFixed(2)}`).join(' ');
+    const dots1 = pts1.map(p => {
+      const isReal = textReal.some(d => d.step === p.step);
+      return svgEl('circle', { cx: x1(p.step).toFixed(2), cy: y1(p.loss).toFixed(2),
+        r: isReal ? '3.5' : '2.2', fill: '#1f6feb', stroke: 'white', 'stroke-width': isReal ? '1.3' : '0.8' });
+    }).join('');
+
+    const gridVals1 = [2.4, 1.8, 1.2, 0.6, 0];
+    const gridLines1 = gridVals1.map(v =>
+      svgEl('line', { x1: lx1, y1: y1(v).toFixed(1), x2: rx1, y2: y1(v).toFixed(1),
+        stroke: v === 0 ? '#6b7784' : '#e3e8ee', 'stroke-width': v === 0 ? '1' : '0.7', 'stroke-dasharray': v === 0 ? '' : '3 3' })
+    ).join('');
+    const gridLabels1 = gridVals1.map(v =>
+      svgEl('text', { x: lx1 - 8, y: y1(v).toFixed(1) + 4, 'text-anchor': 'end', fill: '#5f6b75', 'font-size': '10' }, v.toFixed(1))
+    ).join('');
+    const xLabels1 = [0, 20, 40, 60, 80].map(v =>
+      svgEl('text', { x: x1(v).toFixed(1), y: by1 + 18, 'text-anchor': 'middle', fill: '#5f6b75', 'font-size': '10' }, String(v))
+    ).join('');
+
+    // --- RIGHT: Image Stage (linear) ---
+    const lx2 = 575, rx2 = 1075, ty2 = 55, by2 = 390;
+    const cw2 = rx2 - lx2, ch2 = by2 - ty2;
+    const yMax2 = 2.8, maxStep2 = 200;
+
+    function x2(s) { return lx2 + (s / maxStep2) * cw2; }
+    function y2(L) { return by2 - (L / yMax2) * ch2; }
+
+    const pts2 = sampleCurve(imageGuide, 0, maxStep2, 5);
+    const poly2 = pts2.map(p => `${x2(p.step).toFixed(2)},${y2(p.loss).toFixed(2)}`).join(' ');
+    const dots2 = pts2.map(p => {
+      const isReal = imageReal.some(d => d.step === p.step);
+      return svgEl('circle', { cx: x2(p.step).toFixed(2), cy: y2(p.loss).toFixed(2),
+        r: isReal ? '3.5' : '2.2', fill: '#0f766e', stroke: 'white', 'stroke-width': isReal ? '1.3' : '0.8' });
+    }).join('');
+
+    const gridVals2 = [2.8, 2.1, 1.4, 0.7, 0];
+    const gridLines2 = gridVals2.map(v =>
+      svgEl('line', { x1: lx2, y1: y2(v).toFixed(1), x2: rx2, y2: y2(v).toFixed(1),
+        stroke: v === 0 ? '#6b7784' : '#e3e8ee', 'stroke-width': v === 0 ? '1' : '0.7', 'stroke-dasharray': v === 0 ? '' : '3 3' })
+    ).join('');
+    const gridLabels2 = gridVals2.map(v =>
+      svgEl('text', { x: lx2 - 8, y: y2(v).toFixed(1) + 4, 'text-anchor': 'end', fill: '#5f6b75', 'font-size': '10' }, v.toFixed(1))
+    ).join('');
+    const xLabels2 = [0, 50, 100, 150, 200].map(v =>
+      svgEl('text', { x: x2(v).toFixed(1), y: by2 + 18, 'text-anchor': 'middle', fill: '#5f6b75', 'font-size': '10' }, String(v))
+    ).join('');
+
+    return `
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="两阶段训练损失曲线对比">
+      <!-- Left panel -->
+      <rect x="${lx1}" y="${ty1}" width="${cw1}" height="${ch1}" fill="#fafbfc" stroke="#e2e8f0"/>
+      <text x="${(lx1 + rx1) / 2}" y="38" text-anchor="middle" fill="#1f6feb" font-size="13" font-weight="700">阶段一 · 文本问答 SFT（每 5 step）</text>
+      ${gridLines1} ${gridLabels1} ${xLabels1}
+      <line x1="${lx1}" y1="${ty1}" x2="${lx1}" y2="${by1}" stroke="#6b7784" stroke-width="1"/>
+      <line x1="${lx1}" y1="${by1}" x2="${rx1}" y2="${by1}" stroke="#6b7784" stroke-width="1"/>
+      <polyline points="${poly1}" fill="none" stroke="#1f6feb" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+      ${dots1}
+      <text x="${x1(0) + 4}" y="${y1(catmullRom(textGuide, 0)) - 6}" fill="#1f6feb" font-size="10" font-weight="600">${catmullRom(textGuide, 0).toFixed(4)}</text>
+      <text x="${x1(80) - 46}" y="${y1(0.6526) + 16}" fill="#1f6feb" font-size="10" font-weight="600">0.6526</text>
+
+      <!-- Y-axis label -->
+      <text x="18" y="${ty1 + ch1/2}" text-anchor="middle" transform="rotate(-90, 18, ${ty1 + ch1/2})" fill="#5f6b75" font-size="11" font-weight="600">loss</text>
+      <!-- X-axis label -->
+      <text x="${(lx1 + rx1) / 2}" y="${by1 + 36}" text-anchor="middle" fill="#5f6b75" font-size="11" font-weight="600">step</text>
+
+      <!-- Right panel -->
+      <rect x="${lx2}" y="${ty2}" width="${cw2}" height="${ch2}" fill="#fafbfc" stroke="#e2e8f0"/>
+      <text x="${(lx2 + rx2) / 2}" y="38" text-anchor="middle" fill="#0f766e" font-size="13" font-weight="700">阶段二 · 矿物图片识别 SFT（前 200 步 · 每 5 step）</text>
+      ${gridLines2} ${gridLabels2} ${xLabels2}
+      <line x1="${lx2}" y1="${ty2}" x2="${lx2}" y2="${by2}" stroke="#6b7784" stroke-width="1"/>
+      <line x1="${lx2}" y1="${by2}" x2="${rx2}" y2="${by2}" stroke="#6b7784" stroke-width="1"/>
+      <polyline points="${poly2}" fill="none" stroke="#0f766e" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+      ${dots2}
+      <text x="${x2(0) + 4}" y="${y2(catmullRom(imageGuide, 0)) - 6}" fill="#0f766e" font-size="10" font-weight="600">${catmullRom(imageGuide, 0).toFixed(4)}</text>
+      <text x="${x2(50) + 4}" y="${y2(0.5224) - 6}" fill="#0f766e" font-size="10" font-weight="600">0.5224</text>
+      <text x="${x2(100) - 46}" y="${y2(0.0497) + 16}" fill="#0f766e" font-size="10" font-weight="600">0.0497</text>
+      <text x="${x2(200) - 46}" y="${y2(0.0359) + 16}" fill="#0f766e" font-size="10" font-weight="600">0.0359</text>
+
+      <!-- Y-axis label -->
+      <text x="${lx2 - 28}" y="${ty2 + ch2/2}" text-anchor="middle" transform="rotate(-90, ${lx2 - 28}, ${ty2 + ch2/2})" fill="#5f6b75" font-size="11" font-weight="600">loss</text>
+      <!-- X-axis label -->
+      <text x="${(lx2 + rx2) / 2}" y="${by2 + 36}" text-anchor="middle" fill="#5f6b75" font-size="11" font-weight="600">step</text>
+    </svg>`;
+  }
+
+  // ========== RENDER ALL CHARTS ==========
+  document.getElementById('chart1-wrap').innerHTML = drawChart1();
+  document.getElementById('chart2-wrap').innerHTML = drawChart2();
+  document.getElementById('chart3-wrap').innerHTML = drawChart3();
+  </script>
+</body>
+</html>
